@@ -13,7 +13,7 @@ type SearchResponse struct {
 type SearchResult struct {
 	URL       string   `json:"url"`
 	ParsedURL []string `json:"parsed_url"`
-	Title     string   `json:"title"`
+	Header    string   `json:"title"`
 	Content   string   `json:"content"`
 	Engine    string   `json:"engine"`
 	Engines   []string `json:"engines"`
@@ -32,6 +32,10 @@ type SearchInfobox struct {
 	Infobox string `json:"infobox"`
 	Content string `json:"content"`
 }
+
+func (i SearchResult) Title() string       { return i.Header }
+func (i SearchResult) Description() string { return i.Content }
+func (i SearchResult) FilterValue() string { return i.Header }
 
 func Search(promt string) (SearchResponse, error) {
 	var data SearchResponse

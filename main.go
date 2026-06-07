@@ -1,51 +1,134 @@
 package main
 
 import (
+	"log"
 	"os/exec"
+	"strings"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func main() {
-	app := tview.NewApplication()
+	p := tea.NewProgram(initialModel())
 
-	inputField := tview.NewInputField().
-		SetLabel("> ").
-		SetPlaceholder("Search: ").
-		SetFieldWidth(0)
+	if _, err := p.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
 
-	resultsList := tview.NewList()
+type model struct {
+	ti    textinput.Model
+	l     list.Model
+	focus string
+	data  SearchResponse
+	err   error
+	w     int
+	h     int
+}
 
-	errorText := tview.NewTextView().SetTextColor(tcell.ColorRed)
+func initialModel() model {
+	ti := textinput.New()
+	ti.Placeholder = "Search"
+	ti.SetVirtualCursor(false)
+	ti.Focus()
+	ti.CharLimit = 156
 
-	inputField.SetDoneFunc(func(key tcell.Key) {
-		data, err := Search(inputField.GetText())
-		if err != nil {
-			errorText.SetText(err.Error())
-			return
-		}
-		errorText.SetText("no error")
+	li := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	li.SetFilteringEnabled(false)
+	li.SetShowTitle(false)
+	li.SetShowHelp(false)
+	li.SetShowStatusBar(false)
 
-		resultsList.Clear()
-		for _, result := range data.Results {
-			resultsList.AddItem(result.Title, result.Content, 0, func() {
+	return model{ti: ti, l: li, focus: "input"}
+}
+
+func (m model) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	var cmd tea.Cmd
+
+	switch m.focus {
+	case "input":
+		m.ti, cmd = m.ti.Update(msg)
+		cmds = append(cmds, cmd)
+	case "list":
+		m.l, cmd = m.l.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.w = msg.Width
+		m.h = msg.Height
+
+		m.ti.SetWidth(m.w)
+		// set list width/height
+		tiHeight := lipgloss.Height(m.ti.View())
+		h := m.h - tiHeight - 1
+		m.l.SetWidth(m.w)
+		m.l.SetHeight(h)
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "enter":
+			switch m.focus {
+			case "input":
+				// search
+				m.data, m.err = Search(m.ti.Value())
+				if m.err != nil {
+					break
+				}
+				var items []list.Item
+				for _, v := range m.data.Results {
+					items = append(items, v)
+				}
+				cmd = m.l.SetItems(items)
+				cmds = append(cmds, cmd)
+
+				m.focus = "list"
+				m.ti.Blur()
+				m.l.Select(0)
+			case "list":
+				// open
+				result := m.data.Results[m.l.GlobalIndex()]
 				cmd := exec.Command("xdg-open", result.URL)
 				if err := cmd.Run(); err != nil {
 					panic(err)
 				}
-			})
+			}
+
+		case "s":
+			m.focus = "input"
+			m.ti.Focus()
+			m.l.ResetSelected()
 		}
-		app.SetFocus(resultsList)
-	})
-
-	grid := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(inputField, inputField.GetFieldHeight(), 0, true).
-		AddItem(errorText, errorText.GetFieldHeight(), 0, false).
-		AddItem(resultsList, 0, 1, false)
-
-	if err := app.SetRoot(grid, true).EnableMouse(true).EnablePaste(true).Run(); err != nil {
-		panic(err)
 	}
+
+	return m, tea.Batch(cmds...)
+}
+
+func (m model) View() tea.View {
+	var c *tea.Cursor
+	if !m.ti.VirtualCursor() {
+		c = m.ti.Cursor()
+	}
+
+	d := lipgloss.NewStyle().Foreground(lipgloss.White)
+	line := strings.Repeat("─", max(0, m.w))
+
+	str := lipgloss.JoinVertical(lipgloss.Top, m.ti.View(), d.Render(line), m.l.View())
+
+	v := tea.NewView(str)
+	if m.focus == "input" {
+		v.Cursor = c
+	}
+	v.AltScreen = true
+	return v
 }
