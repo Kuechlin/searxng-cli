@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"os"
 )
 
 type SearchResponse struct {
@@ -40,7 +41,7 @@ func (i SearchResult) FilterValue() string { return i.Header }
 func Search(promt string) (SearchResponse, error) {
 	var data SearchResponse
 
-	resp, err := http.PostForm("https://search.kuechlin.dev/search", url.Values{"q": {promt}, "format": {"json"}})
+	resp, err := http.PostForm(os.Getenv("SEARCH_URL"), url.Values{"q": {promt}, "format": {"json"}})
 	if err != nil {
 		return data, err
 	}
